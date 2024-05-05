@@ -1,0 +1,29 @@
+{
+  "name": "github-webhook",
+  "version": "1.0.0",
+  "description": "basic github webhook implementation",
+  "main": "index.js",
+  "scripts": {
+    "test": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hussainnaqvee/github-webhook.git"
+  },
+  "keywords": [
+    "NodeJS",
+    "webhooks",
+    "express-app"
+  ],
+  "author": "Hussain Ali",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hussainnaqvee/github-webhook/issues"
+  },
+  "homepage": "https://github.com/hussainnaqvee/github-webhook#readme",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "smee-client": "^2.0.1"
+  }
+}
