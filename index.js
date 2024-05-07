@@ -12,7 +12,6 @@ const port = process.env.PORT || 3000;
 
 //config variables for github
 let isDocumentationWebsiteUpdated = false;
-let isContributorsUpdated = false;
 let isMindmapUpdated = false;
 
 let documentationWebsiteBuildTime = Date.now();
@@ -30,6 +29,7 @@ app.post("/webhook", async (req, res) => {
 
   if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(calculatedSignature))) {
     const result = await getBranchStatus(req);
+    console.log("Result: ", result);
     result ? res.sendStatus(result) : res.sendStatus(400);
     // res.sendStatus(200);
   } else {
@@ -42,10 +42,11 @@ app.listen(process.env.PORT, () => {
   console.log(`Server listening on port ${port}`);
 });
 
+//Currently using http for testing
 /*
 https.createServer({
-    key: fs.readFileSync('key.pem'),
-    cert: fs.readFileSync('cert.pem')
+    key: fs.readFileSync(process.env.KEY_PATH),
+    cert: fs.readFileSync(process.env.CERT_PATH)
 }, app).listen(port, () => {
     console.log(`Server listening on port ${port}`);
 });
@@ -81,47 +82,66 @@ const executeCmd = async (cmd) => {
   });
 };
 
-const isProjectUpdated = (projectName,addedFiles,modifiedFiles,removedFiles) => { 
-    return addedFiles.some((str) => str.includes(projectName)) || modifiedFiles.some((str) => str.includes(projectName)) || removedFiles.some((str) => str.includes(projectName));
-}
+const isProjectUpdated = (projectName, addedFiles, modifiedFiles, removedFiles) => {
+  return addedFiles.some((str) => str.includes(projectName)) || modifiedFiles.some((str) => str.includes(projectName)) || removedFiles.some((str) => str.includes(projectName));
+};
 
-const buildProject = async (branchName, addedFiles, removedFiles, modifiedFiles) => { 
-    if (branchName === process.env.BRANCH_NAME) {
-      if (isProjectUpdated("mindmap", addedFiles, modifiedFiles, removedFiles)) {
-        isMindmapUpdated = true;
-      }
-      if (isProjectUpdated("documentation-website", addedFiles, modifiedFiles, removedFiles)) {
-        isDocumentationWebsiteUpdated = true;
-      }
-      if (isProjectUpdated("contributors", addedFiles, modifiedFiles, removedFiles)) {
-        isContributorsUpdated = true;
-      }
+const buildProject = async (branchName, addedFiles, removedFiles, modifiedFiles) => {
+  const currentTime = Date.now();
+
+  if (branchName === process.env.BRANCH_NAME) {
+    if (isProjectUpdated("mindmap", addedFiles, modifiedFiles, removedFiles)) {
+      isMindmapUpdated = true;
     }
-    //pull the project
-    executeCmd(`${process.env.PROJECT_PATH} && ${process.env.PULL_CMD}`);
-    
-    //make sure npm install all libraries
-    executeCmd(`${process.env.PROJECT_PATH} && npm install`);
-    //build the mindmap
-    if (isMindmapUpdated || true) {
-      console.log("Building Mindmap");
-      executeCmd(`${process.env.PROJECT_PATH}/mindmap && npm run build`);
-      mindmapBuildTime = Date.now();
-      isMindmapUpdated = false;
+    if (isProjectUpdated("documentation-website", addedFiles, modifiedFiles, removedFiles)) {
+      isDocumentationWebsiteUpdated = true;
     }
-    //build the contributors
-    if (isContributorsUpdated || true) {
-      console.log("Building Contributors");
-      executeCmd(`${process.env.PROJECT_PATH}/documentation-website && npm run contributors`);
-      contributorsBuildTime = Date.now();
-      isContributorsUpdated = false;
-    }
-    //build the documentation website
-    if (isDocumentationWebsiteUpdated || true) {
-      console.log("Building Documentation Website");
-      executeCmd(`${process.env.PROJECT_PATH}/documentation-website && npm run build`);
-      documentationWebsiteBuildTime = Date.now();
-      isDocumentationWebsiteUpdated = false;
-    }
-    return 200;
-}
+  }
+
+  //stash the unwanted changes in the project
+  // executeCmd(`cd ${process.env.PROJECT_PATH} && git stash`);
+  //checkout to the branch
+  executeCmd(`cd ${process.env.PROJECT_PATH} && git checkout ${branchName}`);
+  //pull the project
+  executeCmd(`cd ${process.env.PROJECT_PATH} && git pull`);
+
+  //installing libraries through npm install
+  executeCmd(`cd ${process.env.PROJECT_PATH} && npm install`);
+
+  //build the mindmap
+  if (isMindmapUpdated || mindmapBuildTime === undefined || (currentTime - mindmapBuildTime) / 1000 / 60 > process.env.MINDMAP_UPDATE_TIME_INTERVAL) {
+    console.log("Building Mindmap");
+    await executeCmd(`cd ${process.env.PROJECT_PATH}/mindmap && npm run build`);
+    mindmapBuildTime = Date.now();
+    isMindmapUpdated = false;
+
+    //moving the build files to the server
+    // exec(`cp -r ${process.env.PROJECT_PATH}/mindmap/dist/ ${process.env.DIST_PATH}`);
+    await executeCmd(`cp -r ${process.env.PROJECT_PATH}/mindmap/dist/ ${process.env.DIST_PATH}`);
+  }
+
+  // build the contributors
+  if (contributorsBuildTime === undefined || (currentTime - contributorsBuildTime) / 1000 / 60 > process.env.CONTRIBUTORS_UPDATE_TIME_INTERVAL) {
+    console.log("Building Contributors");
+    await executeCmd(`cd  ${process.env.PROJECT_PATH}/documentation-website && npm run contributors`);
+    contributorsBuildTime = Date.now();
+
+    //moving the build files to the server
+    // exec(`cp -r ${process.env.PROJECT_PATH}/documentation-website/dist/ ${process.env.DIST_PATH}`);
+    // await executeCmd(`cp -r ${process.env.PROJECT_PATH}/documentation-website/dist/ ${process.env.DIST_PATH}`);
+  }
+
+  //build the documentation website
+  if (isDocumentationWebsiteUpdated || documentationWebsiteBuildTime === undefined || (currentTime - documentationWebsiteBuildTime) / 1000 / 60 > process.env.DOCUMENTATION_WEBSITE_UPDATE_TIME_INTERVAL) {
+    console.log("Building Documentation Website");
+    await executeCmd(`cd  ${process.env.PROJECT_PATH}/documentation-website && npm run build`);
+    documentationWebsiteBuildTime = Date.now();
+    isDocumentationWebsiteUpdated = false;
+
+    //moving the build files to the server
+    // exec(`cp -r ${process.env.PROJECT_PATH}/documentation-website/dist/ ${process.env.DIST_PATH}`);
+    await executeCmd(`cp -r ${process.env.PROJECT_PATH}/documentation-website/dist/ ${process.env.DIST_PATH}`);
+  }
+
+  return 200;
+};
